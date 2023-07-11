@@ -2990,38 +2990,41 @@ fn main() {
         db.insert_account_storage(addr, slot, val).unwrap();
     }
 
+    let from = B160::from_str("0xBE0eB53F46cd790Cd13851d5EFf43D12404d33E8").unwrap();
+    let univ3_quoter = B160::from_str("0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6").unwrap();
+    let data = Bytes::from(hex::decode("f7729d43000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48000000000000000000000000c02aaa39b223fe8d0a0e5c4f27ead9083c756cc20000000000000000000000000000000000000000000000000000000000000bb8000000000000000000000000000000000000000000000000000000746a5288000000000000000000000000000000000000000000000000000000000000000000").unwrap());
+    let value = U256::ZERO;
+
     let start = Instant::now();
     let tasks = vec![0u8; 200_000];
-    let num_success = tasks.par_iter().map(|_| -> u64 {
-        let from = B160::from_str("0xBE0eB53F46cd790Cd13851d5EFf43D12404d33E8").unwrap();
-        let univ3_quoter = B160::from_str("0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6").unwrap();
-        let data = Bytes::from(hex::decode("f7729d43000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48000000000000000000000000c02aaa39b223fe8d0a0e5c4f27ead9083c756cc20000000000000000000000000000000000000000000000000000000000000bb8000000000000000000000000000000000000000000000000000000746a5288000000000000000000000000000000000000000000000000000000000000000000").unwrap());
-        let value = U256::ZERO;
+    let num_success = tasks
+        .par_iter()
+        .map(|_| -> u64 {
+            let mut evm = EVM::new();
+            evm.database(db.clone());
+            evm.env.tx.caller = from;
+            evm.env.tx.transact_to = TransactTo::Call(univ3_quoter);
+            evm.env.tx.data = data.clone();
+            evm.env.tx.value = value;
 
-        let mut evm = EVM::new();
-        evm.database(db.clone());
-        evm.env.tx.caller = from;
-        evm.env.tx.transact_to = TransactTo::Call(univ3_quoter);
-        evm.env.tx.data = data;
-        evm.env.tx.value = value;
+            let result = evm.transact().unwrap().result;
 
-        let result = evm.transact().unwrap().result;
-
-        // unpack output call enum into raw bytes
-        let amount_out = match result {
-            ExecutionResult::Success { output, .. } => match output {
-                Output::Call(value) => Some(value),
+            // unpack output call enum into raw bytes
+            let amount_out = match result {
+                ExecutionResult::Success { output, .. } => match output {
+                    Output::Call(value) => Some(value),
+                    _ => None,
+                },
                 _ => None,
-            },
-            _ => None,
-        };
+            };
 
-        if amount_out.is_some() {
-            1
-        } else {
-            0
-        }
-    }).sum::<u64>();
+            if amount_out.is_some() {
+                1
+            } else {
+                0
+            }
+        })
+        .sum::<u64>();
     println!("num_success = {}", num_success);
     println!("took {}ms", start.elapsed().as_millis());
     println!(
